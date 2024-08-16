@@ -195,7 +195,7 @@ abstract class AbstractSmokeTest extends Specification {
         static jenkinsGradlePluginRef = "gradle-2.12"
 
         // https://github.com/gradle/gradle-enterprise-bamboo-plugin/releases
-        static bambooGradlePluginRef = "gradle-enterprise-bamboo-plugin-1.2.0"
+        static bambooGradlePluginRef = "gradle-enterprise-bamboo-plugin-1.3.0"
     }
 
     static class Versions implements Iterable<String> {
