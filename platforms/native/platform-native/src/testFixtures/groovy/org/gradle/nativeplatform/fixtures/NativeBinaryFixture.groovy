@@ -112,6 +112,8 @@ class NativeBinaryFixture {
     }
 
     void assertHasDebugSymbolsFor(List<String> sourceFileNames) {
+        assert !sourceFileNames.isEmpty()
+
         if (toolChain?.visualCpp) {
             // There is not a built-in tool for querying pdb files, so we just check that the debug file exists
             assertDebugFileExists()
