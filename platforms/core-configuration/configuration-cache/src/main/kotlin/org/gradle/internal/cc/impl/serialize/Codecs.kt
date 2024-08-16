@@ -173,6 +173,7 @@ class Codecs(
     val javaSerializationEncodingLookup: JavaSerializationEncodingLookup,
     flowProviders: FlowProviders,
     transformStepNodeFactory: TransformStepNodeFactory,
+    val parallelStore: Boolean = true
 ) {
     private
     val userTypesBindings: Bindings
@@ -384,5 +385,5 @@ class Codecs(
     }
 
     fun workNodeCodecFor(gradle: GradleInternal, contextSource: IsolateContextSource) =
-        WorkNodeCodec(gradle, internalTypesCodec(), ordinalGroupFactory, contextSource)
+        WorkNodeCodec(gradle, internalTypesCodec(), ordinalGroupFactory, contextSource, parallelStore)
 }

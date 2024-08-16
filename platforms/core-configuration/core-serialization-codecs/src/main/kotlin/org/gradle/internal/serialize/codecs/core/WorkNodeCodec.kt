@@ -42,7 +42,6 @@ import org.gradle.internal.operations.BuildOperationContext
 import org.gradle.internal.operations.BuildOperationDescriptor
 import org.gradle.internal.operations.BuildOperationExecutor
 import org.gradle.internal.operations.BuildOperationInvocationException
-import org.gradle.internal.operations.BuildOperationQueue
 import org.gradle.internal.operations.MultipleBuildOperationFailures
 import org.gradle.internal.operations.RunnableBuildOperation
 import org.gradle.internal.serialize.graph.Codec
@@ -77,7 +76,8 @@ class WorkNodeCodec(
     private val owner: GradleInternal,
     private val internalTypesCodec: Codec<Any?>,
     private val ordinalGroups: OrdinalGroupFactory,
-    private val contextSource: IsolateContextSource
+    private val contextSource: IsolateContextSource,
+    private val parallelStore: Boolean
 ) {
 
     fun WriteContext.writeWork(work: ScheduledWork) {
@@ -203,9 +203,9 @@ class WorkNodeCodec(
 
         // TODO:parallel-cc is this message useful for the context where it may show?
         runBuildOperations("saving state nodes") {
-            groupedNodes.entries.forEach { (nodeOwner, groupNodes) ->
+            groupedNodes.entries.map { (nodeOwner, groupNodes) ->
                 val groupPath = nodeOwner.path()
-                addOperation(displayName = "Storing $groupPath", progressDisplayName = groupPath.path) {
+                OperationInfo(displayName = "Storing $groupPath", progressDisplayName = groupPath.path) {
                     contextSource.writeContextFor(this@writeNodes, groupPath).useToRun {
                         writeGroupedNodes(nodeOwner, groupNodes, nodeIds)
                     }
@@ -225,8 +225,8 @@ class WorkNodeCodec(
         }
 
         runBuildOperations("reading state nodes") {
-            groupPaths.forEach { groupPath ->
-                addOperation(displayName = "Loading $groupPath", progressDisplayName = groupPath.path) {
+            groupPaths.map { groupPath ->
+                OperationInfo(displayName = "Loading $groupPath", progressDisplayName = groupPath.path) {
                     contextSource.readContextFor(this@readNodes, groupPath).readWith(Unit) {
                         setSingletonProperty(projectProvider)
                         val partialResult = readGroupedNodes()
@@ -525,11 +525,18 @@ class WorkNodeCodec(
     }
 
     private
-    fun IsolateContext.runBuildOperations(message: String, operationCreation: BuildOperationQueue<RunnableBuildOperation>.() -> Unit) {
+    fun IsolateContext.runBuildOperations(message: String, operations: () -> Iterable<OperationInfo>) {
+        if (!parallelStore) {
+            logger.debug("${message} in-line")
+            operations().forEach { it.action() }
+            return
+        }
+
+        logger.debug("${message} in parallel")
         val buildOperationExecutor = isolate.owner.serviceOf<BuildOperationExecutor>()
         unwrapBuildOperationExceptions(message) {
             buildOperationExecutor.runAllWithAccessToProjectState {
-                operationCreation(this)
+                operations().forEach { add(asBuildOperation(it.displayName, it.progressDisplayName, it.action)) }
             }
         }
     }
@@ -554,10 +561,18 @@ sealed class NodeOwner {
 
 
 private
-fun BuildOperationQueue<RunnableBuildOperation>.addOperation(displayName: String, progressDisplayName: String? = null, action: (BuildOperationContext) -> Unit) {
-    add(object : RunnableBuildOperation {
+data class OperationInfo(
+    val displayName: String,
+    val progressDisplayName: String? = null,
+    val action: () -> Unit
+)
+
+
+private
+fun asBuildOperation(displayName: String, progressDisplayName: String? = null, action: () -> Unit): RunnableBuildOperation =
+    object : RunnableBuildOperation {
         override fun run(context: BuildOperationContext) {
-            action.invoke(context)
+            action.invoke()
         }
 
         override fun description(): BuildOperationDescriptor.Builder {
@@ -565,5 +580,4 @@ fun BuildOperationQueue<RunnableBuildOperation>.addOperation(displayName: String
                 .displayName(displayName)
                 .progressDisplayName(progressDisplayName)
         }
-    })
-}
+    }

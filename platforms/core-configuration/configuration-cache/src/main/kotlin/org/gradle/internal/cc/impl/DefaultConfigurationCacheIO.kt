@@ -444,6 +444,7 @@ class DefaultConfigurationCacheIO internal constructor(
             javaSerializationEncodingLookup = service(),
             flowProviders = service(),
             transformStepNodeFactory = service(),
+            parallelStore = startParameter.isParallelStore
         )
 
     private
