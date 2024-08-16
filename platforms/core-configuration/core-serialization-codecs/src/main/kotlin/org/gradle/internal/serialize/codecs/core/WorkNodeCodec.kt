@@ -77,7 +77,10 @@ class WorkNodeCodec(
     private val internalTypesCodec: Codec<Any?>,
     private val ordinalGroups: OrdinalGroupFactory,
     private val contextSource: IsolateContextSource,
-    private val parallelStore: Boolean
+    /** Should we store work nodes in parallel? */
+    private val parallelStore: Boolean,
+    /** Should we load work nodes in parallel? */
+    private val parallelLoad: Boolean
 ) {
 
     fun WriteContext.writeWork(work: ScheduledWork) {
@@ -202,7 +205,7 @@ class WorkNodeCodec(
         }
 
         // TODO:parallel-cc is this message useful for the context where it may show?
-        runBuildOperations("saving state nodes") {
+        runBuildOperations(parallelStore, "saving state nodes" ) {
             groupedNodes.entries.map { (nodeOwner, groupNodes) ->
                 val groupPath = nodeOwner.path()
                 OperationInfo(displayName = "Storing $groupPath", progressDisplayName = groupPath.path) {
@@ -224,7 +227,7 @@ class WorkNodeCodec(
             Path.path(readString())
         }
 
-        runBuildOperations("reading state nodes") {
+        runBuildOperations(parallel = parallelLoad, message = "reading state nodes") {
             groupPaths.map { groupPath ->
                 OperationInfo(displayName = "Loading $groupPath", progressDisplayName = groupPath.path) {
                     contextSource.readContextFor(this@readNodes, groupPath).readWith(Unit) {
@@ -525,8 +528,8 @@ class WorkNodeCodec(
     }
 
     private
-    fun IsolateContext.runBuildOperations(message: String, operations: () -> Iterable<OperationInfo>) {
-        if (!parallelStore) {
+    fun IsolateContext.runBuildOperations(parallel: Boolean, message: String, operations: () -> Iterable<OperationInfo>) {
+        if (!parallel) {
             logger.debug("${message} in-line")
             operations().forEach { it.action() }
             return

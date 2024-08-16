@@ -38,6 +38,20 @@ class ConfigurationCacheParallelStoreIntegrationTest extends AbstractConfigurati
 
         then:
         output.contains("[org.gradle.configurationcache] saving state nodes in-line")
+        // reading is always in parallel
+        output.contains("[org.gradle.configurationcache] reading state nodes in parallel")
+    }
+
+    def "parallel load may be opted out"() {
+        given:
+        settingsFile.createFile()
+
+        when:
+        configurationCacheRun("help", "-d", "-Dorg.gradle.configuration-cache.internal.parallel-load=false")
+
+        then:
+        output.contains("[org.gradle.configurationcache] saving state nodes in parallel")
+        // reading is always in parallel
         output.contains("[org.gradle.configurationcache] reading state nodes in-line")
     }
 }
