@@ -201,21 +201,19 @@ class WorkNodeCodec(
             writeString(groupPath.path)
         }
 
-        val isolateOwner = isolate.owner
-        val buildOperationExecutor = isolateOwner.serviceOf<BuildOperationExecutor>()
-        unwrapBuildOperationExceptions("saving state nodes") {
-            buildOperationExecutor.runAllWithAccessToProjectState {
-                groupedNodes.entries.forEach { (nodeOwner, groupNodes) ->
-                    val groupPath = nodeOwner.path()
-                    addOperation(displayName = "Storing $groupPath", progressDisplayName = groupPath.path) {
-                        contextSource.writeContextFor(this@writeNodes, groupPath).useToRun {
-                            writeGroupedNodes(nodeOwner, groupNodes, nodeIds)
-                        }
+        // TODO:parallel-cc is this message useful for the context where it may show?
+        runBuildOperations("saving state nodes") {
+            groupedNodes.entries.forEach { (nodeOwner, groupNodes) ->
+                val groupPath = nodeOwner.path()
+                addOperation(displayName = "Storing $groupPath", progressDisplayName = groupPath.path) {
+                    contextSource.writeContextFor(this@writeNodes, groupPath).useToRun {
+                        writeGroupedNodes(nodeOwner, groupNodes, nodeIds)
                     }
                 }
             }
         }
     }
+
 
     private
     fun ReadContext.readNodes(): NodeForId {
@@ -226,17 +224,14 @@ class WorkNodeCodec(
             Path.path(readString())
         }
 
-        val buildOperationExecutor = isolate.owner.serviceOf<BuildOperationExecutor>()
-        unwrapBuildOperationExceptions("reading state nodes") {
-            buildOperationExecutor.runAllWithAccessToProjectState {
-                groupPaths.forEach { groupPath ->
-                    addOperation(displayName = "Loading $groupPath", progressDisplayName = groupPath.path) {
-                        contextSource.readContextFor(this@readNodes, groupPath).readWith(Unit) {
-                            setSingletonProperty(projectProvider)
-                            val partialResult = readGroupedNodes()
-                            partialResultsRef.updateAndGet {
-                                it.plus(partialResult)
-                            }
+        runBuildOperations("reading state nodes") {
+            groupPaths.forEach { groupPath ->
+                addOperation(displayName = "Loading $groupPath", progressDisplayName = groupPath.path) {
+                    contextSource.readContextFor(this@readNodes, groupPath).readWith(Unit) {
+                        setSingletonProperty(projectProvider)
+                        val partialResult = readGroupedNodes()
+                        partialResultsRef.updateAndGet {
+                            it.plus(partialResult)
                         }
                     }
                 }
@@ -528,6 +523,16 @@ class WorkNodeCodec(
             onSuccessor(successor)
         }
     }
+
+    private
+    fun IsolateContext.runBuildOperations(message: String, operationCreation: BuildOperationQueue<RunnableBuildOperation>.() -> Unit) {
+        val buildOperationExecutor = isolate.owner.serviceOf<BuildOperationExecutor>()
+        unwrapBuildOperationExceptions(message) {
+            buildOperationExecutor.runAllWithAccessToProjectState {
+                operationCreation(this)
+            }
+        }
+    }
 }
 
 
@@ -546,6 +551,7 @@ sealed class NodeOwner {
         }
     }
 }
+
 
 private
 fun BuildOperationQueue<RunnableBuildOperation>.addOperation(displayName: String, progressDisplayName: String? = null, action: (BuildOperationContext) -> Unit) {
